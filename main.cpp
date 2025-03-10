@@ -1,10 +1,11 @@
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
-#include <ctime>
 #include <cmath>
 #include <cstdlib>
 #include <algorithm>
+#include <iterator>
 
 using namespace std;
 
@@ -73,38 +74,48 @@ vector<unsigned long long> crypto(const vector<unsigned long long>& msg, unsigne
     return result;
 }
 
-// 显示向量内容
-template<typename T>
-void displayVector(const vector<T>& vec, const string& title) {
-    cout << title << ":\n";
-    for (const auto& elem : vec)
-        cout << elem << " ";
-    cout << "\n\n";
+void printUsage(const char* programName) {
+    cerr << "Usage: " << programName << " <inputfile> -o <outputfile>\n";
+    cerr << "Example: " << programName << " message.txt -o encrypted.txt\n";
 }
 
-int main() {
-    srand(time(0));
+int main(int argc, char* argv[]) {
+    // 命令行参数验证
+    if (argc != 4 || string(argv[2]) != "-o") {
+        printUsage(argv[0]);
+        return 1;
+    }
 
-    // 输入处理
-    string message;
-    cout << "Enter message (A-Z, space only): ";
-    getline(cin, message);
+    const string inputPath = argv[1];
+    const string outputPath = argv[3];
+
+    // 读取输入文件
+    ifstream inFile(inputPath);
+    if (!inFile) {
+        cerr << "Error: Cannot open input file: " << inputPath << "\n";
+        return 1;
+    }
+    
+    // 读取文件内容并转换为大写
+    string message((istreambuf_iterator<char>(inFile)), istreambuf_iterator<char>());
+    inFile.close();
     transform(message.begin(), message.end(), message.begin(), ::toupper);
 
-    // 转换为数字表示
+    // 验证字符并转换为数字表示
     vector<int> numericMsg;
     for (char c : message) {
-        if (c == ' ') 
+        if (c == ' ') {
             numericMsg.push_back(26);
-        else if (c >= 'A' && c <= 'Z')
+        } else if (c >= 'A' && c <= 'Z') {
             numericMsg.push_back(c - 'A');
-        else {
-            cerr << "Invalid character detected. Only A-Z and space allowed.\n";
+        } else {
+            cerr << "Error: Invalid character '" << c 
+                 << "'. Only A-Z and space allowed.\n";
             return 1;
         }
     }
 
-    // 生成质数p和q
+    // 生成RSA参数
     unsigned p, q;
     do {
         int rand1 = 500 + rand() % 500;
@@ -113,11 +124,10 @@ int main() {
         q = nthPrime(rand2);
     } while (p == q);
 
-    // 计算RSA参数
-    unsigned long long n_val = p * q;
-    unsigned long long phi = (p-1) * (q-1);
-    
-    // 选择e并确保与phi互质
+    const unsigned long long n_val = p * q;
+    const unsigned long long phi = (p-1) * (q-1);
+
+    // 选择加密指数e
     unsigned long long e;
     int x, y;
     do {
@@ -127,14 +137,14 @@ int main() {
         e = 3;     // 备用选择
     } while (gcdExtended(e, phi, &x, &y) != 1);
 
-    // 计算d
-    long long d = modInverse(e, phi);
+    // 计算解密指数d
+    const long long d = modInverse(e, phi);
     if (d == -1) {
         cerr << "Error: Failed to find modular inverse.\n";
         return 1;
     }
 
-    // 分块处理
+    // 分块处理消息（每两个字符一个块）
     vector<unsigned long long> blocks;
     for (size_t i=0; i<numericMsg.size(); i+=2) {
         long block = numericMsg[i] * 100;
@@ -143,36 +153,26 @@ int main() {
         blocks.push_back(block);
     }
 
-    // 加密解密过程
-    auto encrypted = crypto(blocks, e, n_val);
-    auto decrypted = crypto(encrypted, d, n_val);
+    // 加密消息
+    const auto encrypted = crypto(blocks, e, n_val);
 
-    // 解密恢复消息
-    vector<int> decoded;
-    for (auto num : decrypted) {
-        decoded.push_back(num / 100);
-        if (num % 100 != 0)
-            decoded.push_back(num % 100);
+    // 写入加密结果到输出文件
+    ofstream outFile(outputPath);
+    if (!outFile) {
+        cerr << "Error: Cannot open output file: " << outputPath << "\n";
+        return 1;
     }
-
-    // 转换回字符
-    string recovered;
-    for (int num : decoded) {
-        if (num == 26)
-            recovered += ' ';
-        else if (num >= 0 && num <= 25)
-            recovered += char(num + 'A');
+    
+    for (const auto& num : encrypted) {
+        outFile << num << " ";
     }
+    outFile.close();
 
-    // 显示结果
-    cout << "\nOriginal Message: " << message
-         << "\nNumeric Values:   "; for (auto n : numericMsg) cout << n << " ";
-    cout << "\nBlocks:           "; for (auto b : blocks) cout << b << " ";
-    cout << "\n\nPublic Key (e, n): (" << e << ", " << n_val << ")"
-         << "\nPrivate Key (d, n): (" << d << ", " << n_val << ")"
-         << "\n\nEncrypted Blocks:  "; for (auto e : encrypted) cout << e << " ";
-    cout << "\nDecrypted Blocks:  "; for (auto d : decrypted) cout << d << " ";
-    cout << "\n\nRecovered Message: " << recovered << "\n";
+    // 在控制台显示关键信息
+    cout << "Successfully encrypted " << inputPath << "\n";
+    cout << "Public Key (e, n): (" << e << ", " << n_val << ")\n";
+    cout << "Private Key (d, n): (" << d << ", " << n_val << ")\n";
+    cout << "Encrypted data saved to: " << outputPath << "\n";
 
     return 0;
 }
